@@ -3,8 +3,8 @@ import tkinter as tk
 from tkinter import scrolledtext, messagebox
 from PIL import Image, ImageTk
 from io import BytesIO
-import tempfile
-import subprocess
+import tempfile, subprocess
+from crypto_utils import encrypt, decrypt
 
 HOST = "127.0.0.1"
 PORT = 5000
@@ -23,18 +23,25 @@ class ServerGUI:
         root.title("Server (Sunucu)")
         root.geometry("720x520")
 
-        top = tk.Frame(root); top.pack(fill="x", padx=8, pady=6)
+        # Üst kısım
+        top = tk.Frame(root)
+        top.pack(fill="x", padx=8, pady=6)
         self.status = tk.Label(top, text=f"Durum: Beklemede — {HOST}:{PORT}")
         self.status.pack(side="left")
 
-        mid = tk.Frame(root); mid.pack(fill="both", expand=True, padx=8, pady=6)
+        # Orta log kısmı
+        mid = tk.Frame(root)
+        mid.pack(fill="both", expand=True, padx=8, pady=6)
         self.log = scrolledtext.ScrolledText(mid, height=12, state="disabled")
         self.log.pack(fill="both", expand=True)
 
+        # Resim göstermek için
         self.image_label = tk.Label(root)
         self.image_label.pack(pady=8)
 
-        bottom = tk.Frame(root); bottom.pack(fill="x", padx=8, pady=6)
+        # Alt kısım: mesaj gönderme
+        bottom = tk.Frame(root)
+        bottom.pack(fill="x", padx=8, pady=6)
         tk.Label(bottom, text="İstemciye mesaj:").pack(anchor="w")
         self.entry = tk.Entry(bottom)
         self.entry.pack(side="left", fill="x", expand=True)
@@ -88,17 +95,19 @@ class ServerGUI:
 
                 if typ == "text":
                     size = header.get("size", 0)
-                    data = self.recvall(size).decode("utf-8") if size else ""
+                    data_enc = self.recvall(size)  # Şifrelenmiş veri
+                    print("[ŞİFRELİ SERVER VERİ] ", data_enc)  # Test için
+                    data = decrypt(data_enc).decode("utf-8")  # Şifre çözülüyor
                     self.log_write(f"[İSTEMCİ] {data}")
 
                 elif typ == "file":
                     size = header["size"]
                     filename = header.get("filename", "dosya")
                     mimetype = header.get("mimetype", "application/octet-stream")
-                    data = self.recvall(size)
+                    data_enc = self.recvall(size)
+                    data = decrypt(data_enc)
 
                     if mimetype.startswith("image/"):
-                        
                         img = Image.open(BytesIO(data))
                         img.thumbnail((640, 360))
                         tk_img = ImageTk.PhotoImage(img)
@@ -108,7 +117,6 @@ class ServerGUI:
                         self.root.after(0, _show)
                         self.log_write(f"[DOSYA] Resim alındı: {filename} ({len(data)} bayt)")
                     else:
-                        
                         ext = os.path.splitext(filename)[1] or ""
                         tmpdir = tempfile.gettempdir()
                         save_path = os.path.join(tmpdir, f"server_recv{ext}")
@@ -142,15 +150,19 @@ class ServerGUI:
         msg = self.entry.get().strip()
         if not msg:
             return
+
         body = msg.encode("utf-8")
-        header = json.dumps({"type": "text", "size": len(body)}).encode("utf-8")
-        packet = struct.pack(">I", len(header)) + header + body
+        body_enc = encrypt(body)  # Şifrele
+        header = json.dumps({"type": "text", "size": len(body_enc)}).encode("utf-8")
+        packet = struct.pack(">I", len(header)) + header + body_enc
         try:
             self.conn.sendall(packet)
+            print("[ŞİFRELİ SERVER GÖNDERİ] ", body_enc)  # Test için
             self.log_write(f"[SUNUCU] {msg}")
             self.entry.delete(0, "end")
         except Exception as e:
             messagebox.showerror("Gönderme Hatası", str(e))
+
 
 if __name__ == "__main__":
     root = tk.Tk()

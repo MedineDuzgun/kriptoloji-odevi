@@ -3,8 +3,8 @@ import tkinter as tk
 from tkinter import filedialog, scrolledtext, messagebox
 from PIL import Image, ImageTk
 from io import BytesIO
-import tempfile
-import subprocess
+import tempfile, subprocess
+from crypto_utils import encrypt, decrypt
 
 HOST = "127.0.0.1"
 PORT = 5000
@@ -26,8 +26,10 @@ class ClientGUI:
         top = tk.Frame(root); top.pack(fill="x", padx=8, pady=6)
         tk.Label(top, text="Sunucu IP:").pack(side="left")
         self.host_e = tk.Entry(top, width=15); self.host_e.insert(0, HOST); self.host_e.pack(side="left", padx=4)
+
         tk.Label(top, text="Port:").pack(side="left")
         self.port_e = tk.Entry(top, width=6); self.port_e.insert(0, str(PORT)); self.port_e.pack(side="left", padx=4)
+
         tk.Button(top, text="Bağlan", command=self.connect_server).pack(side="left", padx=6)
         self.status = tk.Label(top, text="Durum: Bağlı değil")
         self.status.pack(side="left", padx=10)
@@ -63,6 +65,7 @@ class ClientGUI:
             self.sock.connect((host, port))
             self.status.config(text=f"Durum: Bağlandı {host}:{port}")
             self.log_write(f"[+] Sunucuya bağlanıldı: {host}:{port}")
+
             self.reader_thread = threading.Thread(target=self.reader_loop, daemon=True)
             self.reader_thread.start()
         except Exception as e:
@@ -75,44 +78,62 @@ class ClientGUI:
                 if not header_len_raw:
                     self.log_write("[-] Bağlantı kapandı.")
                     break
+
                 header_len = struct.unpack(">I", header_len_raw)[0]
                 header_json = self.recvall(header_len).decode("utf-8")
                 header = json.loads(header_json)
                 typ = header.get("type")
+
                 if typ == "text":
                     size = header.get("size", 0)
-                    data = self.recvall(size).decode("utf-8") if size else ""
+                    data_enc = self.recvall(size)
+                    print("[ŞİFRELİ CLIENT VERİ ALINDI] ", data_enc)  # şifreli veri
+                    data = decrypt(data_enc).decode("utf-8")
                     self.log_write(f"[SUNUCU] {data}")
+
                 elif typ == "file":
                     size = header["size"]
                     filename = header.get("filename", "dosya")
                     mimetype = header.get("mimetype", "application/octet-stream")
-                    data = self.recvall(size)
+
+                    data_enc = self.recvall(size)
+                    data = decrypt(data_enc)
+
                     if mimetype.startswith("image/"):
                         img = Image.open(BytesIO(data))
                         img.thumbnail((640, 360))
                         tk_img = ImageTk.PhotoImage(img)
+
                         def _show():
                             self.image_label.configure(image=tk_img)
                             self.image_label.image = tk_img
                         self.root.after(0, _show)
+
                         self.log_write(f"[DOSYA] Resim alındı: {filename} ({len(data)} bayt)")
+
                     else:
                         ext = os.path.splitext(filename)[1] or ""
                         tmpdir = tempfile.gettempdir()
                         save_path = os.path.join(tmpdir, f"client_recv{ext}")
+
                         with open(save_path, "wb") as f:
                             f.write(data)
+
                         self.log_write(f"[DOSYA] Kaydedildi: {save_path} ({mimetype})")
                         open_with_os(save_path)
+
                 else:
                     self.log_write(f"[!] Bilinmeyen tür: {typ}")
+
         except Exception as e:
             self.log_write(f"[HATA] {e}")
+
         finally:
             if self.sock:
-                try: self.sock.close()
-                except: pass
+                try:
+                    self.sock.close()
+                except:
+                    pass
 
     def recvall(self, n):
         buf = b""
@@ -127,14 +148,23 @@ class ClientGUI:
         if not self.sock:
             messagebox.showwarning("Uyarı", "Önce bağlanın.")
             return
+
         msg = self.entry.get().strip()
         if not msg:
             return
+
         body = msg.encode("utf-8")
-        header = json.dumps({"type": "text", "size": len(body)}).encode("utf-8")
-        packet = struct.pack(">I", len(header)) + header + body
+        body_enc = encrypt(body)
+
+        header = json.dumps({
+            "type": "text",
+            "size": len(body_enc)
+        }).encode("utf-8")
+
+        packet = struct.pack(">I", len(header)) + header + body_enc
         try:
             self.sock.sendall(packet)
+            print("[ŞİFRELİ CLIENT VERİ GÖNDERİLDİ] ", body_enc)
             self.log_write(f"[İSTEMCİ] {msg}")
             self.entry.delete(0, "end")
         except Exception as e:
@@ -144,25 +174,33 @@ class ClientGUI:
         if not self.sock:
             messagebox.showwarning("Uyarı", "Önce bağlanın.")
             return
+
         path = filedialog.askopenfilename(title="Dosya seç (resim/ses/video)")
         if not path:
             return
+
         with open(path, "rb") as f:
             data = f.read()
+
         filename = os.path.basename(path)
         mimetype, _ = mimetypes.guess_type(filename)
         if not mimetype:
             mimetype = "application/octet-stream"
+
+        data_enc = encrypt(data)
+
         header = json.dumps({
             "type": "file",
             "filename": filename,
             "mimetype": mimetype,
-            "size": len(data)
+            "size": len(data_enc)
         }).encode("utf-8")
-        packet = struct.pack(">I", len(header)) + header + data
+
+        packet = struct.pack(">I", len(header)) + header + data_enc
+
         try:
             self.sock.sendall(packet)
-            self.log_write(f"[İSTEMCİ] Dosya gönderildi: {filename} ({mimetype}, {len(data)} bayt)")
+            self.log_write(f"[İSTEMCİ] Dosya gönderildi: {filename} ({mimetype}, {len(data_enc)} bayt)")
         except Exception as e:
             messagebox.showerror("Gönderme Hatası", str(e))
 
