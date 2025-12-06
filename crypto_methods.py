@@ -1,25 +1,23 @@
-# crypto_utils.py
+
 from Crypto.Cipher import AES
+import base64
 
-# ---------------- AES ----------------
-AES_KEY = b"1234567890abcdef"  # 16 byte key, örnek
+SHIFT = 3  # Caesar için örnek
 
-def aes_encrypt(data: bytes) -> bytes:
-    cipher = AES.new(AES_KEY, AES.MODE_ECB)
+def aes_encrypt(data: bytes, key: bytes) -> bytes:
+    # AES şifreleme (örnek)
+    cipher = AES.new(key, AES.MODE_ECB)
     pad_len = 16 - (len(data) % 16)
     data += bytes([pad_len])*pad_len
     return cipher.encrypt(data)
 
-def aes_decrypt(data: bytes) -> bytes:
-    cipher = AES.new(AES_KEY, AES.MODE_ECB)
+def aes_decrypt(data: bytes, key: bytes) -> bytes:
+    cipher = AES.new(key, AES.MODE_ECB)
     decrypted = cipher.decrypt(data)
     pad_len = decrypted[-1]
     return decrypted[:-pad_len]
 
-# ---------------- Caesar ----------------
-SHIFT = 3
-
-def caesar_encrypt(text: str) -> bytes:
+def caesar_encrypt(text: str) -> str:
     result = ""
     for char in text:
         if char.isalpha():
@@ -27,10 +25,9 @@ def caesar_encrypt(text: str) -> bytes:
             result += chr((ord(char) - base + SHIFT) % 26 + base)
         else:
             result += char
-    return result.encode("utf-8")
+    return result
 
-def caesar_decrypt(data: bytes) -> str:
-    text = data.decode("utf-8")
+def caesar_decrypt(text: str) -> str:
     result = ""
     for char in text:
         if char.isalpha():
@@ -40,7 +37,7 @@ def caesar_decrypt(data: bytes) -> str:
             result += char
     return result
 
-# ---------------- Yöntem Sözlüğü ----------------
+# Şifreleme yöntemlerini sözlükle tut
 methods = {
     "AES": (aes_encrypt, aes_decrypt),
     "Caesar": (caesar_encrypt, caesar_decrypt)
