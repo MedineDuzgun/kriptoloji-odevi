@@ -3,7 +3,7 @@ import socket
 import json
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
-from ciphers import METHODS
+from ciphers import METHODS  # Burada AES, DES, Caesar hepsi dict içinde olacak
 
 
 class ClientGUI:
@@ -46,7 +46,7 @@ class ClientGUI:
             root.columnconfigure(i, weight=1)
 
     # ---------------------------------------------------------
-    # ŞİFRELE VE SUNUCUYA GÖNDER
+    # ŞİFRELE → JSON OLUŞTUR → SERVER'A GÖNDER
     # ---------------------------------------------------------
     def send_message(self):
         host = self.host_entry.get()
@@ -63,22 +63,31 @@ class ClientGUI:
         CipherClass = METHODS[method_name]
 
         try:
-            encrypted = CipherClass.encrypt(text, key)
+            # ŞİFRELEME BURDA OLUYOR
+            encrypted_bytes = CipherClass.encrypt(text, key)
+
+            # Eğer bytes değilse string olarak dönmüş olabilir → bytes’a çevir
+            if isinstance(encrypted_bytes, str):
+                encrypted_bytes = encrypted_bytes.encode()
+
         except Exception as e:
             messagebox.showerror("Hata", f"Şifreleme hatası: {e}")
             return
 
-        data = json.dumps({
-            "cipher": encrypted
-        })
+        # JSON PAKET OLUŞTUR
+        packet = {
+            "method": method_name,
+            "key": key,
+            "ciphertext": encrypted_bytes.hex()
+        }
 
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect((host, port))
-            sock.sendall(data.encode())
+            sock.sendall(json.dumps(packet).encode())  # JSON gönder
             sock.close()
 
-            self.log.insert(tk.END, f"[+] Şifrelenmiş mesaj gönderildi: {encrypted}\n")
+            self.log.insert(tk.END, f"[+] Gönderildi ({method_name}): {encrypted_bytes.hex()}\n")
 
         except Exception as e:
             messagebox.showerror("Bağlantı Hatası", f"Sunucuya bağlanılamadı:\n{e}")
