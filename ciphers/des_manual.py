@@ -1,59 +1,45 @@
-# ciphers/des_manual.py
+# des_manual.py
 
-def pad8(data):
+def pad8(data: bytes) -> bytes:
     pad_len = 8 - len(data) % 8
-    return data + bytes([pad_len]) * pad_len
+    return data + bytes([pad_len] * pad_len)
 
-def unpad8(data):
+def unpad8(data: bytes) -> bytes:
     pad_len = data[-1]
+    if pad_len < 1 or pad_len > 8:
+        raise ValueError("Invalid padding")
     return data[:-pad_len]
-
-def feistel_round(left, right, subkey):
-    new_right = bytes([r ^ k for r, k in zip(right, subkey)])
-    new_left = right
-    return new_left, new_right
 
 class DESManual:
     @staticmethod
-    def _make_key(key):
-        key = key.ljust(8, "0")[:8].encode()
-        return key
+    def _expand_key(key: str) -> bytes:
+        # 8 byte key olacak şekilde ayarlıyoruz
+        return key.ljust(8, "0")[:8].encode()
 
     @staticmethod
-    def encrypt(text, key):
-        key = DESManual._make_key(key)
-        data = pad8(text.encode())
+    def _process_block(block: bytes, key: bytes) -> bytes:
+        # Basit XOR tabanlı blok işlemi (3 tur simülasyonu)
+        state = block
+        for _ in range(3):
+            state = bytes([b ^ k for b, k in zip(state, key)])
+        return state
 
+    @staticmethod
+    def encrypt(text: str, key: str) -> str:
+        key_bytes = DESManual._expand_key(key)
+        data = pad8(text.encode())
         encrypted = b""
         for i in range(0, len(data), 8):
             block = data[i:i+8]
-            left, right = block[:4], block[4:]
-
-            # 4 tur Feistel
-            for _ in range(4):
-                left, right = feistel_round(left, right, key[:4])
-
-            encrypted += left + right
-
+            encrypted += DESManual._process_block(block, key_bytes)
         return encrypted.hex()
 
     @staticmethod
-    def decrypt(text, key):
-        key = DESManual._make_key(key)
-        data = bytes.fromhex(text)
-
+    def decrypt(hex_text: str, key: str) -> str:
+        key_bytes = DESManual._expand_key(key)
+        data = bytes.fromhex(hex_text)
         decrypted = b""
         for i in range(0, len(data), 8):
             block = data[i:i+8]
-            left, right = block[:4], block[4:]
-
-            # Aynı işlemler (sade Feistel)
-            for _ in range(4):
-                left, right = feistel_round(left, right, key[:4])
-
-            decrypted += left + right
-
-        try:
-            return unpad8(decrypted).decode()
-        except:
-            return "[MANUAL DES DECRYPT ERROR]"
+            decrypted += DESManual._process_block(block, key_bytes)
+        return unpad8(decrypted).decode()

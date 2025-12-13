@@ -159,7 +159,8 @@ class ServerGUI:
             # *** KRİTİK: AES/DES/3DES BURADA BYTES OLMALI ***
             elif method in MANUAL_BINARY:
                  # AES / DES decrypt() kendi fromhex'ini yapar
-                ciphertext = cipher_data   # STRING KALACAK
+                    ciphertext = bytes.fromhex(cipher_data)
+  # STRING KALACAK
 
 
             else:

@@ -1,16 +1,29 @@
+# ciphers/aes_cipher.py
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
 class AESCipher:
     @staticmethod
     def encrypt(text, key):
-        key = key.ljust(16, "0")[:16].encode()
-        cipher = AES.new(key, AES.MODE_ECB)
-        return cipher.encrypt(pad(text.encode(), 16)).hex()
+        """
+        text: string
+        key: string (kullanıcıdan alınan)
+        return: bytes
+        """
+        # AES → 16 byte key
+        key_bytes = key.ljust(16, "0")[:16].encode()
+        cipher = AES.new(key_bytes, AES.MODE_ECB)
+        encrypted = cipher.encrypt(pad(text.encode(), AES.block_size))
+        return encrypted
 
     @staticmethod
-    def decrypt(text, key):
-        key = key.ljust(16, "0")[:16].encode()
-        cipher = AES.new(key, AES.MODE_ECB)
-        data = bytes.fromhex(text)
-        return unpad(cipher.decrypt(data), 16).decode()
+    def decrypt(cipher_bytes, key):
+        """
+        cipher_bytes: bytes
+        key: string (kullanıcıdan alınan)
+        return: string (decrypt edilmiş)
+        """
+        key_bytes = key.ljust(16, "0")[:16].encode()
+        cipher = AES.new(key_bytes, AES.MODE_ECB)
+        decrypted = unpad(cipher.decrypt(cipher_bytes), AES.block_size)
+        return decrypted.decode()
