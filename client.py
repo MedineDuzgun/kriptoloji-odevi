@@ -3,7 +3,7 @@ import socket
 import json
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
-from ciphers import METHODS  # Burada AES, DES, Caesar hepsi dict içinde olacak
+from ciphers import METHODS  # AES, DES, Caesar hepsi burada dict içinde olacak
 
 
 class ClientGUI:
@@ -33,65 +33,84 @@ class ClientGUI:
 
         tk.Label(root, text="Gönderilecek Mesaj").grid(row=4, column=0, sticky="w")
         self.text_entry = scrolledtext.ScrolledText(root, width=50, height=5)
-        self.text_entry.grid(row=5, columnspan=2)
+        self.text_entry.grid(row=5, columnspan=2, sticky="we")
 
         tk.Button(root, text="Şifrele & Gönder", command=self.send_message)\
             .grid(row=6, columnspan=2, pady=5)
 
         tk.Label(root, text="Log").grid(row=7, column=0, sticky="w")
         self.log = scrolledtext.ScrolledText(root, width=50, height=5)
-        self.log.grid(row=8, columnspan=2)
+        self.log.grid(row=8, columnspan=2, sticky="we")
 
         for i in range(2):
             root.columnconfigure(i, weight=1)
 
-    # ---------------------------------------------------------
-    # ŞİFRELE → JSON OLUŞTUR → SERVER'A GÖNDER
-    # ---------------------------------------------------------
+    # ------------------------------------------------------------------
+    # ŞİFRELE → JSON PAKETİ OLUŞTUR → SERVER'A GÖNDER
+    # ------------------------------------------------------------------
     def send_message(self):
-        host = self.host_entry.get()
-        port = int(self.port_entry.get())
+     host = self.host_entry.get()
+     port = int(self.port_entry.get())
 
-        text = self.text_entry.get("1.0", tk.END).strip()
-        key = self.key_entry.get().strip()
+     text = self.text_entry.get("1.0", tk.END).strip()
+     key = self.key_entry.get().strip()
+     method_name = self.method_combo.get()
 
-        if not text:
-            messagebox.showerror("Hata", "Gönderilecek metin boş olamaz.")
-            return
+     if not text:
+        messagebox.showerror("Hata", "Gönderilecek metin boş olamaz.")
+        return
 
-        method_name = self.method_combo.get()
-        CipherClass = METHODS[method_name]
+     CipherClass = METHODS[method_name]
 
-        try:
-            # ŞİFRELEME BURDA OLUYOR
-            encrypted_bytes = CipherClass.encrypt(text, key)
+     try:
+        encrypted = CipherClass.encrypt(text, key)
+     except Exception as e:
+        messagebox.showerror("Şifreleme Hatası", f"Şifreleme işleminde hata:\n{e}")
+        return
 
-            # Eğer bytes değilse string olarak dönmüş olabilir → bytes’a çevir
-            if isinstance(encrypted_bytes, str):
-                encrypted_bytes = encrypted_bytes.encode()
+    # -------------------------------------------------
+    # AYRIM BURADA (KRİTİK KISIM)
+    # -------------------------------------------------
 
-        except Exception as e:
-            messagebox.showerror("Hata", f"Şifreleme hatası: {e}")
-            return
+    # AES / DES / 3DES → binary → HEX gönder
+     if method_name in ["AES", "DES", "3DES", "ManualAES", "ManualDES"]:
+        if isinstance(encrypted, str):
+            encrypted = encrypted.encode()
 
-        # JSON PAKET OLUŞTUR
         packet = {
             "method": method_name,
             "key": key,
-            "ciphertext": encrypted_bytes.hex()
+            "type": "hex",
+            "ciphertext": encrypted.hex()
         }
 
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((host, port))
-            sock.sendall(json.dumps(packet).encode())  # JSON gönder
-            sock.close()
+        log_text = encrypted.hex()
 
-            self.log.insert(tk.END, f"[+] Gönderildi ({method_name}): {encrypted_bytes.hex()}\n")
+    # KLASİK ŞİFRELER → TEXT gönder
+     else:
+        packet = {
+            "method": method_name,
+            "key": key,
+            "type": "text",
+            "ciphertext": encrypted
+        }
 
-        except Exception as e:
-            messagebox.showerror("Bağlantı Hatası", f"Sunucuya bağlanılamadı:\n{e}")
-            return
+        log_text = encrypted
+
+    # -------------------------------------------------
+    # SOCKET GÖNDERİM
+    # -------------------------------------------------
+     try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((host, port))
+        sock.sendall(json.dumps(packet).encode("utf-8"))
+        sock.close()
+
+        self.log.insert(tk.END, f"[+] Gönderildi [{method_name}]: {log_text}\n")
+
+     except Exception as e:
+        messagebox.showerror("Bağlantı Hatası", f"Sunucuya bağlanılamadı:\n{e}")
+
 
 
 if __name__ == "__main__":

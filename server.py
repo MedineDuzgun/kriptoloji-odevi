@@ -8,15 +8,11 @@ from tkinter import messagebox
 from ciphers import METHODS
 
 
-
-
-
 class ServerGUI:
     def __init__(self, master):
         self.master = master
         master.title("Sunucu - Mesaj Deşifreleme")
 
-        # --- UI ---
         tk.Label(master, text="Host").grid(row=0, column=0, sticky='w')
         self.host_e = tk.Entry(master); self.host_e.insert(0, "127.0.0.1")
         self.host_e.grid(row=0, column=1, sticky='we')
@@ -43,12 +39,9 @@ class ServerGUI:
         self.dec_txt = st.ScrolledText(master, height=6)
         self.dec_txt.grid(row=5, column=1, sticky='we')
 
-        tk.Button(master, text="Sunucuyu Başlat", command=self.start_server)\
-            .grid(row=6, column=0)
-        tk.Button(master, text="Sunucuyu Durdur", command=self.stop_server)\
-            .grid(row=6, column=1)
-        tk.Button(master, text="Temizle", command=self.clear)\
-            .grid(row=6, column=2)
+        tk.Button(master, text="Sunucuyu Başlat", command=self.start_server).grid(row=6, column=0)
+        tk.Button(master, text="Sunucuyu Durdur", command=self.stop_server).grid(row=6, column=1)
+        tk.Button(master, text="Temizle", command=self.clear).grid(row=6, column=2)
 
         tk.Label(master, text="Log").grid(row=7, column=0, sticky='w')
         self.log = st.ScrolledText(master, height=6)
@@ -59,13 +52,13 @@ class ServerGUI:
         self.server_socket = None
         self.running = False
 
-    # ---------------------------------------------------------
+
     def clear(self):
         self.raw_txt.delete('1.0', 'end')
         self.dec_txt.delete('1.0', 'end')
         self.log.delete('1.0', 'end')
 
-    # ---------------------------------------------------------
+
     def start_server(self):
         if self.running:
             return
@@ -87,7 +80,7 @@ class ServerGUI:
 
         threading.Thread(target=self._accept_loop, daemon=True).start()
 
-    # ---------------------------------------------------------
+
     def stop_server(self):
         self.running = False
         try:
@@ -97,7 +90,7 @@ class ServerGUI:
         except Exception as e:
             self.log.insert('end', f"[STOP ERROR] {e}\n")
 
-    # ---------------------------------------------------------
+
     def _accept_loop(self):
         while self.running:
             try:
@@ -107,46 +100,106 @@ class ServerGUI:
             except:
                 break
 
-    # ---------------------------------------------------------
+
+    # ----------------------------------------------------------
+    # DÜZELTİLMİŞ CLIENT HANDLER (AES/DES %100 DOĞRU)
+    # ----------------------------------------------------------
     def _handle_client(self, conn):
         with conn:
             data = conn.recv(16384)
 
         try:
             msg = json.loads(data.decode("utf-8"))
-        except:
-            self.log.insert('end', "[JSON ERROR] invalid JSON\n")
+        except Exception as e:
+            self.log.insert('end', f"[JSON ERROR] invalid JSON: {e}\n")
             return
 
         method = msg.get("method")
         key = msg.get("key")
-        cipher_type = msg.get("type")        # "text" veya "hex"
+        cipher_type = msg.get("type")
         cipher_data = msg.get("ciphertext")
 
-        # --------------------------
-        # HAM MESAJ EKLE
-        # --------------------------
-        self.raw_txt.insert("end", cipher_data + "\n")
+        self.raw_txt.insert("end", (cipher_data or "") + "\n")
 
-        # --------------------------
-        # DÖNÜŞTÜR (HEX → BYTES)
-        # --------------------------
-        if cipher_type == "hex":
-            ciphertext = bytes.fromhex(cipher_data)
-        else:
-            ciphertext = cipher_data
+        TEXT_CIPHERS = {
+            "Caesar", "Vigenere", "Substitution", "Playfair",
+            "RailFence", "Columnar", "Polybius", "Hill",
+            "Vernam", "Affine", "Pigpen"
+        }
 
-        # --------------------------
-        # DECRYPT
-        # --------------------------
+        MANUAL_BINARY = {"AES", "DES", "3DES", "ManualAES", "ManualDES"}
+
+        try:
+            is_rsa = method.lower().startswith("rsa")
+        except:
+            is_rsa = False
+
+        ciphertext = cipher_data
+
+        # =====================================================
+        # 1) HEX NORMALIZATION
+        # =====================================================
+        if cipher_type == "hex" and isinstance(cipher_data, str):
+
+            if method in TEXT_CIPHERS:
+                try:
+                    ciphertext = bytes.fromhex(cipher_data).decode("utf-8")
+                except:
+                    try:
+                        ciphertext = bytes.fromhex(cipher_data)
+                    except:
+                        ciphertext = cipher_data
+
+            elif is_rsa:
+                try:
+                    ciphertext = bytes.fromhex(cipher_data).decode("utf-8")
+                except:
+                    ciphertext = cipher_data
+
+            # *** KRİTİK: AES/DES/3DES BURADA BYTES OLMALI ***
+            elif method in MANUAL_BINARY:
+                 # AES / DES decrypt() kendi fromhex'ini yapar
+                ciphertext = cipher_data   # STRING KALACAK
+
+
+            else:
+                ciphertext = cipher_data
+
+        # =====================================================
+        # 2) KEY NORMALIZATION
+        # =====================================================
+        if method in ["Caesar", "RailFence"]:
+            try:
+                key = int(key)
+            except:
+                pass
+
+        # =====================================================
+        # 3) DECRYPT
+        # =====================================================
         try:
             cipher_obj = METHODS.get(method)
+            if cipher_obj is None:
+                raise ValueError(f"Unknown method: {method}")
+
             decrypted = cipher_obj.decrypt(ciphertext, key)
+
+            if isinstance(decrypted, bytes):
+                try:
+                    decrypted = decrypted.decode("utf-8")
+                except:
+                    decrypted = decrypted.hex()
+
+            decrypted = str(decrypted)
         except Exception as e:
             decrypted = f"[DECRYPT ERROR] {e}"
 
+        # =====================================================
+        # 4) OUTPUT
+        # =====================================================
         self.dec_txt.insert("end", decrypted + "\n")
         self.log.insert("end", "[OK] Mesaj çözüldü.\n")
+
 
 
 if __name__ == '__main__':
