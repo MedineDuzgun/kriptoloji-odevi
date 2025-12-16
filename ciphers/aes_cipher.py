@@ -1,4 +1,3 @@
-# ciphers/aes_cipher.py
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
@@ -10,7 +9,6 @@ class AESCipher:
         key: string (kullanıcıdan alınan)
         return: bytes
         """
-        # AES → 16 byte key
         key_bytes = key.ljust(16, "0")[:16].encode()
         cipher = AES.new(key_bytes, AES.MODE_ECB)
         encrypted = cipher.encrypt(pad(text.encode(), AES.block_size))

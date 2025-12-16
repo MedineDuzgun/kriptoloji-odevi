@@ -1,4 +1,3 @@
-# ciphers/rsa_lib.py
 
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
@@ -16,7 +15,6 @@ class RSACipher:
 
     @staticmethod
     def encrypt(text, key=None):
-        # Public key gerekiyor
         if RSACipher.PUBLIC_KEY is None:
             RSACipher.generate_keys()
 
@@ -26,7 +24,6 @@ class RSACipher:
 
     @staticmethod
     def decrypt(text, key=None):
-        # Private key gerekiyor
         if RSACipher.PRIVATE_KEY is None:
             RSACipher.generate_keys()
 

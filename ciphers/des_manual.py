@@ -1,4 +1,3 @@
-# des_manual.py
 
 def pad8(data: bytes) -> bytes:
     pad_len = 8 - len(data) % 8
@@ -13,12 +12,10 @@ def unpad8(data: bytes) -> bytes:
 class DESManual:
     @staticmethod
     def _expand_key(key: str) -> bytes:
-        # 8 byte key olacak şekilde ayarlıyoruz
         return key.ljust(8, "0")[:8].encode()
 
     @staticmethod
     def _process_block(block: bytes, key: bytes) -> bytes:
-        # Basit XOR tabanlı blok işlemi (3 tur simülasyonu)
         state = block
         for _ in range(3):
             state = bytes([b ^ k for b, k in zip(state, key)])

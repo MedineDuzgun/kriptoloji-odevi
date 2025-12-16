@@ -1,4 +1,3 @@
-# ciphers/des_cipher.py
 from Crypto.Cipher import DES
 from Crypto.Util.Padding import pad, unpad
 
@@ -10,7 +9,6 @@ class DESCipher:
         key: string (kullanıcıdan alınan)
         return: bytes
         """
-        # DES → 8 byte key
         key_bytes = key.ljust(8, "0")[:8].encode()
         cipher = DES.new(key_bytes, DES.MODE_ECB)
         encrypted = cipher.encrypt(pad(text.encode(), DES.block_size))

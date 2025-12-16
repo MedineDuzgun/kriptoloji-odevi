@@ -1,9 +1,8 @@
-# client.py
 import socket
 import json
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
-from ciphers import METHODS  # AES, DES, Caesar hepsi burada dict içinde olacak
+from ciphers import METHODS
 
 
 class ClientGUI:
@@ -45,9 +44,6 @@ class ClientGUI:
         for i in range(2):
             root.columnconfigure(i, weight=1)
 
-    # ------------------------------------------------------------------
-    # ŞİFRELE → JSON PAKETİ OLUŞTUR → SERVER'A GÖNDER
-    # ------------------------------------------------------------------
     def send_message(self):
      host = self.host_entry.get()
      port = int(self.port_entry.get())
@@ -68,11 +64,6 @@ class ClientGUI:
         messagebox.showerror("Şifreleme Hatası", f"Şifreleme işleminde hata:\n{e}")
         return
 
-    # -------------------------------------------------
-    # AYRIM BURADA (KRİTİK KISIM)
-    # -------------------------------------------------
-
-    # AES / DES / 3DES → binary → HEX gönder
      if method_name in ["AES", "DES", "3DES", "ManualAES", "ManualDES"]:
         if isinstance(encrypted, str):
             encrypted = encrypted.encode()
@@ -86,7 +77,6 @@ class ClientGUI:
 
         log_text = encrypted.hex()
 
-    # KLASİK ŞİFRELER → TEXT gönder
      else:
         packet = {
             "method": method_name,
@@ -97,9 +87,7 @@ class ClientGUI:
 
         log_text = encrypted
 
-    # -------------------------------------------------
-    # SOCKET GÖNDERİM
-    # -------------------------------------------------
+
      try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((host, port))

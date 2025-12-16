@@ -1,4 +1,3 @@
-# aes_manual_fixed.py
 
 SBOX = [
     0x63,0x7C,0x77,0x7B,0xF2,0x6B,0x6F,0xC5,
@@ -86,7 +85,7 @@ class AESManual:
         for i in range(0, len(data), 16):
             block = data[i:i+16]
             state = block
-            for _ in range(3):  # 3 tur
+            for _ in range(3): 
                 state = sub_bytes(state)
                 state = shift_rows(state)
                 state = add_round_key(state, key_exp)

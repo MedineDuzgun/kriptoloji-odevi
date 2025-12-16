@@ -1,4 +1,3 @@
-# server.py
 import socket
 import threading
 import json
@@ -100,10 +99,6 @@ class ServerGUI:
             except:
                 break
 
-
-    # ----------------------------------------------------------
-    # DÜZELTİLMİŞ CLIENT HANDLER (AES/DES %100 DOĞRU)
-    # ----------------------------------------------------------
     def _handle_client(self, conn):
         with conn:
             data = conn.recv(16384)
@@ -136,9 +131,6 @@ class ServerGUI:
 
         ciphertext = cipher_data
 
-        # =====================================================
-        # 1) HEX NORMALIZATION
-        # =====================================================
         if cipher_type == "hex" and isinstance(cipher_data, str):
 
             if method in TEXT_CIPHERS:
@@ -156,28 +148,19 @@ class ServerGUI:
                 except:
                     ciphertext = cipher_data
 
-            # *** KRİTİK: AES/DES/3DES BURADA BYTES OLMALI ***
             elif method in MANUAL_BINARY:
-                 # AES / DES decrypt() kendi fromhex'ini yapar
                     ciphertext = bytes.fromhex(cipher_data)
-  # STRING KALACAK
 
 
             else:
                 ciphertext = cipher_data
 
-        # =====================================================
-        # 2) KEY NORMALIZATION
-        # =====================================================
         if method in ["Caesar", "RailFence"]:
             try:
                 key = int(key)
             except:
                 pass
 
-        # =====================================================
-        # 3) DECRYPT
-        # =====================================================
         try:
             cipher_obj = METHODS.get(method)
             if cipher_obj is None:
@@ -195,9 +178,6 @@ class ServerGUI:
         except Exception as e:
             decrypted = f"[DECRYPT ERROR] {e}"
 
-        # =====================================================
-        # 4) OUTPUT
-        # =====================================================
         self.dec_txt.insert("end", decrypted + "\n")
         self.log.insert("end", "[OK] Mesaj çözüldü.\n")
 
