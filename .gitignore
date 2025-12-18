@@ -1,0 +1,10 @@
+# RSA key files
+*.pem
+
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
