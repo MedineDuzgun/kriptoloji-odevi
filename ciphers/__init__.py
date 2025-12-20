@@ -14,6 +14,7 @@ from .aes_cipher import AESCipher
 from .aes_manual import AESManual
 from .des_manual import DESManual
 from .rsa_lib import RSACipher
+from ciphers.rsa_message_cipher import RSAMessageCipher
 
 METHODS = {
     "Caesar": CaesarCipher,
@@ -32,4 +33,5 @@ METHODS = {
     "AES (Manual)": AESManual,
     "DES (Manual)": DESManual,
     "RSA": RSACipher,
+    "RSA-MSG": RSAMessageCipher,
 }
