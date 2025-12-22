@@ -7,6 +7,7 @@ from tkinter import messagebox
 from ciphers import METHODS
 from ciphers.rsa_cipher import RSACipher
 from ciphers.kdf import derive_key
+from ciphers.ecc_cipher import ECCCipher
 import os
 
 
@@ -16,6 +17,7 @@ class ServerGUI:
         master.title("Sunucu - Mesaj Deşifreleme")
         master.minsize(700, 550)
 
+        ECCCipher.generate_keys()
         RSACipher.generate_keys()
 
         tk.Label(master, text="Host").grid(row=0, column=0, sticky='w', padx=5)
@@ -118,99 +120,77 @@ class ServerGUI:
                 break
 
     def _handle_client(self, conn):
-        with conn:
-            data = conn.recv(16384)
-
         try:
-            msg = json.loads(data.decode("utf-8"))
-        except Exception as e:
-            self.log.insert('end', f"[JSON ERROR] invalid JSON: {e}\n")
-            return
-
-        method = msg.get("method")
-        key = msg.get("key")
-        encrypted_key_hex = msg.get("encrypted_key")
-
-        real_key = None
-
-        if encrypted_key_hex:
-            self.log.insert(
-                'end',
-                f"[RSA] Alınan Şifrelenmiş Anahtar:\n{encrypted_key_hex}\n"
-            )
-            try:
-                encrypted_key_bytes = bytes.fromhex(encrypted_key_hex)
-                real_key = RSACipher.decrypt(encrypted_key_bytes)
-                self.log.insert('end', "[RSA] Anahtar başarıyla çözüldü.\n")
-            except Exception as e:
-                self.log.insert('end', f"[RSA DECRYPT ERROR] {e}\n")
+            data = conn.recv(16384)
+            if not data:
                 return
 
-        cipher_type = msg.get("type")
-        cipher_data = msg.get("ciphertext")
+            msg = json.loads(data.decode("utf-8"))
+            method = msg.get("method")
 
-        self.raw_txt.insert("end", str(cipher_data) + "\n")
+            if method == "ECC":
+                client_pub = ECCCipher.load_public_key(msg["client_pub"])
 
-        TEXT_CIPHERS = {
-            "Caesar", "Vigenere", "Substitution", "Playfair",
-            "RailFence", "Columnar", "Polybius", "Hill",
-            "Vernam", "Affine", "Pigpen"
-        }
+                conn.sendall(json.dumps({
+                    "server_pub": ECCCipher.export_public_key()
+                }).encode("utf-8"))
 
-        MANUAL_BINARY = {"AES", "DES", "3DES", "ManualAES", "ManualDES"}
+                data = conn.recv(16384)
+                if not data:
+                    return
 
-        ciphertext = cipher_data
+                cipher_packet = json.loads(data.decode("utf-8"))
+                ciphertext = bytes.fromhex(cipher_packet["ciphertext"])
 
-        if cipher_type == "hex" and isinstance(cipher_data, str):
+                shared_key = ECCCipher.derive_shared_key(client_pub)
+                decrypted = METHODS["AES"].decrypt(ciphertext, shared_key)
 
-            if method == "RSA-MSG":
+                if isinstance(decrypted, bytes):
+                    decrypted = decrypted.decode("utf-8")
+
+                self.raw_txt.insert("end", cipher_packet["ciphertext"] + "\n")
+                self.dec_txt.insert("end", decrypted + "\n")
+                self.log.insert("end", "[ECC] Mesaj çözüldü\n")
+                return
+
+            encrypted_key_hex = msg.get("encrypted_key")
+            real_key = None
+
+            if encrypted_key_hex:
+                self.log.insert(
+                    "end",
+                    f"[RSA] Şifrelenmiş Anahtar:\n{encrypted_key_hex}\n"
+                )
+                real_key = RSACipher.decrypt(bytes.fromhex(encrypted_key_hex))
+
+            cipher_data = msg.get("ciphertext")
+            cipher_type = msg.get("type")
+
+            ciphertext = cipher_data
+            if cipher_type == "hex":
                 ciphertext = bytes.fromhex(cipher_data)
 
-            elif method in MANUAL_BINARY:
-                ciphertext = bytes.fromhex(cipher_data)
-
-            elif method in TEXT_CIPHERS:
-                try:
-                    ciphertext = bytes.fromhex(cipher_data).decode("utf-8")
-                except:
-                    ciphertext = cipher_data
-
-            else:
-                ciphertext = cipher_data
-
-        if method in ["Caesar", "RailFence"]:
-            try:
-                key = int(key)
-            except:
-                pass
-
-        try:
-            cipher_obj = METHODS.get(method)
-            if cipher_obj is None:
-                raise ValueError(f"Unknown method: {method}")
+            cipher_obj = METHODS[method]
 
             if method == "RSA-MSG":
                 decrypted = cipher_obj.decrypt(ciphertext)
-
-            elif method in MANUAL_BINARY:
+            elif method in ["AES", "DES", "3DES", "ManualAES", "ManualDES"]:
                 decrypted = cipher_obj.decrypt(ciphertext, real_key)
-
             else:
-                decrypted = cipher_obj.decrypt(ciphertext, key)
+                decrypted = cipher_obj.decrypt(ciphertext, msg.get("key"))
 
             if isinstance(decrypted, bytes):
-                try:
-                    decrypted = decrypted.decode("utf-8")
-                except:
-                    decrypted = decrypted.hex()
+                decrypted = decrypted.decode("utf-8")
 
-            decrypted = str(decrypted)
+            self.raw_txt.insert("end", str(cipher_data) + "\n")
+            self.dec_txt.insert("end", decrypted + "\n")
+            self.log.insert("end", "[OK] Mesaj çözüldü\n")
 
         except Exception as e:
-            decrypted = f"[DECRYPT ERROR] {e}"
+            self.log.insert("end", f"[HATA] {str(e)}\n")
 
-        self.dec_txt.insert("end", decrypted + "\n")
-        self.log.insert("end", "[OK] Mesaj çözüldü.\n")
+        finally:
+            conn.close()
 
 
 if __name__ == '__main__':

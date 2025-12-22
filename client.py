@@ -5,6 +5,7 @@ from tkinter import ttk, scrolledtext, messagebox
 from ciphers import METHODS
 from ciphers.rsa_cipher import RSACipher
 from ciphers.kdf import derive_key
+from ciphers.ecc_cipher import ECCCipher
 import os
 
 
@@ -12,6 +13,7 @@ class ClientGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("İstemci - Mesaj Şifreleme")
+        ECCCipher.generate_keys()
 
         tk.Label(root, text="Sunucu Host").grid(row=0, column=0, sticky="w")
         self.host_entry = tk.Entry(root)
@@ -62,112 +64,120 @@ class ClientGUI:
         root.columnconfigure(1, weight=1)
 
         root.rowconfigure(5, weight=1)
-        root.rowconfigure(8, weight=1) 
-        
-         
-    def send_message(self):
+        root.rowconfigure(8, weight=1)
 
+    def send_message(self):
         host = self.host_entry.get()
         port = int(self.port_entry.get())
-
         text = self.text_entry.get("1.0", tk.END).strip()
-        password = self.key_entry.get().strip()
-        method_name = self.method_combo.get()
+        password = self.key_entry.get()
+        method = self.method_combo.get()
 
         if not text:
-            messagebox.showerror("Hata", "Gönderilecek metin boş olamaz.")
             return
 
-        CipherClass = METHODS[method_name]
-
-        if method_name == "RSA-MSG":
+        if method == "ECC":
             try:
-                encrypted = CipherClass.encrypt(text)
-            except Exception as e:
-                messagebox.showerror("RSA Hatası", str(e))
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.connect((host, port))
+
+                client_pub = ECCCipher.export_public_key()
+                if not client_pub:
+                    raise ValueError("Client public key üretilemedi")
+
+                sock.sendall(json.dumps({
+                    "method": "ECC",
+                    "client_pub": client_pub
+                }).encode("utf-8"))
+
+                data = sock.recv(16384)
+                if not data:
+                    raise ValueError("Server public key alınamadı")
+
+                server_packet = json.loads(data.decode("utf-8"))
+
+                if "server_pub" not in server_packet:
+                    raise ValueError("Server public key eksik")
+
+                server_pub_key = ECCCipher.load_public_key(
+                    server_packet["server_pub"])
+
+                shared_key = ECCCipher.derive_shared_key(server_pub_key)
+                if not shared_key:
+                    raise ValueError("Shared key üretilemedi")
+
+                encrypted = METHODS["AES"].encrypt(text, shared_key)
+                if not encrypted:
+                    raise ValueError("AES şifreleme başarısız")
+
+                sock.sendall(json.dumps({
+                    "ciphertext": encrypted.hex()
+                }).encode("utf-8"))
+
+                sock.close()
+                self.log.insert(tk.END, "[ECC] Gönderildi\n")
                 return
 
+            except Exception as e:
+                try:
+                    sock.close()
+                except:
+                    pass
+                messagebox.showerror("ECC Hatası", str(e))
+                return
+
+        CipherClass = METHODS[method]
+
+        if method == "RSA-MSG":
+            encrypted = CipherClass.encrypt(text)
             packet = {
-                "method": method_name,
+                "method": method,
                 "type": "hex",
                 "ciphertext": encrypted.hex()
             }
 
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.connect((host, port))
-                sock.sendall(json.dumps(packet).encode("utf-8"))
-                sock.close()
-
-                self.log.insert(
-                    tk.END,
-                    "[RSA] Mesaj RSA ile şifrelendi ve gönderildi\n"
-                )
-                return
-            except Exception as e:
-                messagebox.showerror("Bağlantı Hatası", str(e))
-                return
-
-        if method_name in ["AES", "DES", "3DES", "ManualAES", "ManualDES"]:
-
-            password_bytes = password.encode("utf-8")
-            salt = os.urandom(16)
-
-            if method_name in ["DES", "ManualDES"]:
+        elif method in ["AES", "DES", "3DES", "ManualAES", "ManualDES"]:
+            if method in ["DES", "ManualDES"]:
                 key_len = 8
-            elif method_name == "3DES":
+            elif method == "3DES":
                 key_len = 24
             else:
-                key_len = 16  # AES
+                key_len = 16
 
-            real_key = derive_key(password_bytes, salt, key_len)
+            salt = os.urandom(16)
 
-            try:
-                encrypted = CipherClass.encrypt(text, real_key)
-            except Exception as e:
-                messagebox.showerror("Şifreleme Hatası", str(e))
-                return
+            real_key = derive_key(
+                password.encode("utf-8"),
+                salt,
+                key_len
+            )
+
+            encrypted = CipherClass.encrypt(text, real_key)
 
             encrypted_key = RSACipher.encrypt(real_key).hex()
-
             packet = {
-                "method": method_name,
+                "method": method,
                 "encrypted_key": encrypted_key,
                 "salt": salt.hex(),
                 "type": "hex",
                 "ciphertext": encrypted.hex()
             }
 
-            log_text = encrypted.hex()
-
         else:
-            try:
-                encrypted = CipherClass.encrypt(text, password)
-            except Exception as e:
-                messagebox.showerror("Şifreleme Hatası", str(e))
-                return
-
+            encrypted = CipherClass.encrypt(text, password)
             packet = {
-                "method": method_name,
+                "method": method,
                 "key": password,
                 "type": "text",
                 "ciphertext": encrypted
             }
 
-            log_text = encrypted
+        sock = socket.socket()
+        sock.connect((host, port))
+        sock.sendall(json.dumps(packet).encode())
+        sock.close()
 
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((host, port))
-            sock.sendall(json.dumps(packet).encode("utf-8"))
-            sock.close()
-
-            self.log.insert(
-                tk.END, f"[+] Gönderildi [{method_name}]: {log_text}\n"
-            )
-
-        except Exception as e:
-            messagebox.showerror("Bağlantı Hatası", str(e))
+        self.log.insert(tk.END, f"[{method}] Gönderildi\n")
 
 
 if __name__ == "__main__":
