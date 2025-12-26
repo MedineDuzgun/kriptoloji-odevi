@@ -13,7 +13,8 @@ class ClientGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("İstemci - Mesaj Şifreleme")
-        ECCCipher.generate_keys()
+
+        self.ecc = ECCCipher()
 
         tk.Label(root, text="Sunucu Host").grid(row=0, column=0, sticky="w")
         self.host_entry = tk.Entry(root)
@@ -27,44 +28,41 @@ class ClientGUI:
 
         tk.Label(root, text="Şifreleme Yöntemi").grid(
             row=2, column=0, sticky="w")
-        self.method_combo = ttk.Combobox(root, values=list(METHODS.keys()))
+        self.method_combo = ttk.Combobox(
+            root, values=list(METHODS.keys()), state="readonly")
         self.method_combo.current(0)
         self.method_combo.grid(row=2, column=1, sticky="we")
+        self.method_combo.bind("<<ComboboxSelected>>", self.on_method_change)
 
-        tk.Label(root, text="Anahtar").grid(row=3, column=0, sticky="w")
+        tk.Label(root, text="Anahtar Dağıtımı").grid(
+            row=3, column=0, sticky="w")
+        self.kex_combo = ttk.Combobox(
+            root, values=["RSA", "ECC"], state="readonly")
+        self.kex_combo.current(0)
+        self.kex_combo.grid(row=3, column=1, sticky="we")
+
+        tk.Label(root, text="Anahtar").grid(row=4, column=0, sticky="w")
         self.key_entry = tk.Entry(root)
         self.key_entry.insert(0, "3")
-        self.key_entry.grid(row=3, column=1, sticky="we")
+        self.key_entry.grid(row=4, column=1, sticky="we")
 
         tk.Label(root, text="Gönderilecek Mesaj").grid(
-            row=4, column=0, sticky="w")
+            row=5, column=0, sticky="w")
         self.text_entry = scrolledtext.ScrolledText(root, height=8)
-        self.text_entry.grid(
-            row=5,
-            columnspan=2,
-            sticky="nsew",
-            padx=5,
-            pady=5
-        )
+        self.text_entry.grid(row=6, columnspan=2,
+                             sticky="nsew", padx=5, pady=5)
 
-        tk.Button(root, text="Şifrele & Gönder", command=self.send_message)\
-            .grid(row=6, columnspan=2, pady=5)
+        tk.Button(root, text="Şifrele & Gönder", command=self.send_message).grid(
+            row=7, columnspan=2, pady=5)
 
-        tk.Label(root, text="Log").grid(row=7, column=0, sticky="w")
+        tk.Label(root, text="Log").grid(row=8, column=0, sticky="w")
         self.log = scrolledtext.ScrolledText(root, height=8)
-        self.log.grid(
-            row=8,
-            columnspan=2,
-            sticky="nsew",
-            padx=5,
-            pady=5
-        )
+        self.log.grid(row=9, columnspan=2, sticky="nsew", padx=5, pady=5)
 
         root.columnconfigure(0, weight=1)
         root.columnconfigure(1, weight=1)
-
-        root.rowconfigure(5, weight=1)
-        root.rowconfigure(8, weight=1)
+        root.rowconfigure(6, weight=1)
+        root.rowconfigure(9, weight=1)
 
     def send_message(self):
         host = self.host_entry.get()
@@ -72,112 +70,160 @@ class ClientGUI:
         text = self.text_entry.get("1.0", tk.END).strip()
         password = self.key_entry.get()
         method = self.method_combo.get()
+        kex = self.kex_combo.get()
 
         if not text:
             return
 
-        if method == "ECC":
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.connect((host, port))
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect((host, port))
 
-                client_pub = ECCCipher.export_public_key()
-                if not client_pub:
-                    raise ValueError("Client public key üretilemedi")
+            
+            if method in ["AES", "DES", "3DES"] and kex == "ECC":
+                if method == "DES":
+                    key_len = 8
+                elif method == "3DES":
+                    key_len = 24
+                else:
+                    key_len = 16
 
+                self.ecc = ECCCipher()
+                client_pub = self.ecc.export_public_key()
+
+               
                 sock.sendall(json.dumps({
-                    "method": "ECC",
+                    "method": method,
+                    "kex": "ECC",
                     "client_pub": client_pub
-                }).encode("utf-8"))
+                }).encode())
 
+              
                 data = sock.recv(16384)
-                if not data:
-                    raise ValueError("Server public key alınamadı")
+                server_pub = ECCCipher.load_public_key(
+                    json.loads(data.decode())["server_pub"]
+                )
 
-                server_packet = json.loads(data.decode("utf-8"))
+                shared_key = self.ecc.derive_shared_key(server_pub)
 
-                if "server_pub" not in server_packet:
-                    raise ValueError("Server public key eksik")
+              
+                real_key = os.urandom(key_len)
 
-                server_pub_key = ECCCipher.load_public_key(
-                    server_packet["server_pub"])
+               
+                encrypted_key = METHODS["AES"].encrypt(
+                    real_key.hex(), shared_key)
+                encrypted_msg = METHODS[method].encrypt(text, real_key)
 
-                shared_key = ECCCipher.derive_shared_key(server_pub_key)
-                if not shared_key:
-                    raise ValueError("Shared key üretilemedi")
+              
+                self.log.insert(
+                    tk.END,
+                    f"[ECC] Encrypted Symmetric Key (HEX):\n{encrypted_key.hex()}\n"
+                )
 
-                encrypted = METHODS["AES"].encrypt(text, shared_key)
-                if not encrypted:
-                    raise ValueError("AES şifreleme başarısız")
+                packet = {
+                    "method": method,
+                    "kex": "ECC",
+                    "encrypted_key": encrypted_key.hex(),
+                    "type": "hex",
+                    "ciphertext": encrypted_msg.hex()
+                }
 
-                sock.sendall(json.dumps({
-                    "ciphertext": encrypted.hex()
-                }).encode("utf-8"))
-
-                sock.close()
-                self.log.insert(tk.END, "[ECC] Gönderildi\n")
+                sock.sendall(json.dumps(packet).encode())
+                self.log.insert(tk.END, f"[{method}] Gönderildi (ECC KEX)\n")
                 return
 
-            except Exception as e:
-                try:
-                    sock.close()
-                except:
-                    pass
-                messagebox.showerror("ECC Hatası", str(e))
+          
+            if method in ["AES", "DES", "3DES"] and kex == "RSA":
+                if method == "DES":
+                    key_len = 8
+                elif method == "3DES":
+                    key_len = 24
+                else:
+                    key_len = 16
+
+                salt = os.urandom(16)
+                real_key = derive_key(password.encode(), salt, key_len)
+
+              
+                encrypted_key = RSACipher.encrypt(real_key)
+                encrypted_msg = METHODS[method].encrypt(text, real_key)
+
+                self.log.insert(
+                    tk.END,
+                    f"[RSA] Encrypted Symmetric Key (HEX):\n{encrypted_key.hex()}\n"
+                )
+
+                packet = {
+                    "method": method,
+                    "kex": "RSA",
+                    "encrypted_key": encrypted_key.hex(),
+                    "salt": salt.hex(),
+                    "type": "hex",
+                    "ciphertext": encrypted_msg.hex()
+                }
+
+                sock.sendall(json.dumps(packet).encode())
+                self.log.insert(tk.END, f"[{method}] Gönderildi (RSA KEX)\n")
                 return
 
-        CipherClass = METHODS[method]
-
-        if method == "RSA-MSG":
-            encrypted = CipherClass.encrypt(text)
-            packet = {
-                "method": method,
-                "type": "hex",
-                "ciphertext": encrypted.hex()
-            }
-
-        elif method in ["AES", "DES", "3DES", "ManualAES", "ManualDES"]:
-            if method in ["DES", "ManualDES"]:
-                key_len = 8
-            elif method == "3DES":
-                key_len = 24
-            else:
-                key_len = 16
-
-            salt = os.urandom(16)
-
-            real_key = derive_key(
-                password.encode("utf-8"),
-                salt,
-                key_len
-            )
-
-            encrypted = CipherClass.encrypt(text, real_key)
-
-            encrypted_key = RSACipher.encrypt(real_key).hex()
-            packet = {
-                "method": method,
-                "encrypted_key": encrypted_key,
-                "salt": salt.hex(),
-                "type": "hex",
-                "ciphertext": encrypted.hex()
-            }
-
-        else:
+            
+            CipherClass = METHODS[method]
             encrypted = CipherClass.encrypt(text, password)
+
+            if isinstance(encrypted, bytes):
+                encrypted_str = encrypted.hex()
+                packet_type = "hex"
+
+            else:
+                encrypted_str = encrypted
+                packet_type = "text"
+
             packet = {
                 "method": method,
                 "key": password,
                 "type": "text",
                 "ciphertext": encrypted
             }
+            sock.sendall(json.dumps(packet).encode())
+            self.log.insert(tk.END, f"[{method}] Gönderildi\n")
 
-        sock = socket.socket()
-        sock.connect((host, port))
-        sock.sendall(json.dumps(packet).encode())
-        sock.close()
+        except Exception as e:
+            messagebox.showerror("Hata", str(e))
+        finally:
+            sock.close()
 
-        self.log.insert(tk.END, f"[{method}] Gönderildi\n")
+    def on_method_change(self, event=None):
+        method = self.method_combo.get()
+        klasik = ["Caesar", "Vigenere", "Affine", "RSA-MSG"]
+        manuel_sifrelemeler = ["AES (Manual)", "DES (Manual)"]
+
+        if method in klasik:
+            
+            self.key_entry.config(state="normal")
+            self.kex_combo.config(state="disabled")
+        elif method in manuel_sifrelemeler:
+           
+            self.key_entry.delete(0, "end")
+            self.key_entry.config(state="disabled")
+            self.kex_combo.config(state="disabled")
+        else:
+            
+            self.key_entry.delete(0, "end")
+            self.key_entry.config(state="disabled")
+            self.kex_combo.config(state="readonly")
+
+    def on_kex_change(self, event=None):
+        method = self.method_combo.get()
+        kex = self.kex_combo.get()
+
+        
+        if method in ["AES", "DES", "3DES"] and kex in ["ECC", "RSA"]:
+            self.key_entry.delete(0, "end")
+            self.key_entry.config(state="disabled")
+        else:
+            
+            if method in ["Caesar", "Vigenere", "Affine", "RSA-MSG"]:
+                self.key_entry.config(state="normal")
 
 
 if __name__ == "__main__":

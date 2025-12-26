@@ -17,7 +17,6 @@ class ServerGUI:
         master.title("Sunucu - Mesaj Deşifreleme")
         master.minsize(700, 550)
 
-        ECCCipher.generate_keys()
         RSACipher.generate_keys()
 
         tk.Label(master, text="Host").grid(row=0, column=0, sticky='w', padx=5)
@@ -29,18 +28,6 @@ class ServerGUI:
         self.port_e = tk.Entry(master)
         self.port_e.insert(0, "5000")
         self.port_e.grid(row=1, column=1, sticky='we', padx=5)
-
-        tk.Label(master, text="Deşifreleme Yöntemi").grid(
-            row=2, column=0, sticky='w', padx=5)
-        self.method_var = tk.StringVar(master, value="Caesar")
-        methods = list(METHODS.keys())
-        self.method_menu = tk.OptionMenu(master, self.method_var, *methods)
-        self.method_menu.grid(row=2, column=1, sticky='we', padx=5)
-
-        tk.Label(master, text="Anahtar").grid(
-            row=3, column=0, sticky='w', padx=5)
-        self.key_e = tk.Entry(master)
-        self.key_e.grid(row=3, column=1, sticky='we', padx=5)
 
         tk.Label(master, text="Gelen Şifreli Mesaj").grid(
             row=4, column=0, sticky='w', padx=5)
@@ -125,70 +112,80 @@ class ServerGUI:
             if not data:
                 return
 
-            msg = json.loads(data.decode("utf-8"))
+            msg = json.loads(data.decode())
             method = msg.get("method")
+            kex = msg.get("kex")
 
-            if method == "ECC":
+           
+            if kex == "ECC":
                 client_pub = ECCCipher.load_public_key(msg["client_pub"])
+                self.ecc = ECCCipher()
 
+                
                 conn.sendall(json.dumps({
-                    "server_pub": ECCCipher.export_public_key()
-                }).encode("utf-8"))
+                    "server_pub": self.ecc.export_public_key()
+                }).encode())
 
-                data = conn.recv(16384)
-                if not data:
-                    return
+                
+                data2 = conn.recv(16384)
+                packet = json.loads(data2.decode())
+                encrypted_key = bytes.fromhex(packet["encrypted_key"])
+                ciphertext = bytes.fromhex(packet["ciphertext"])
 
-                cipher_packet = json.loads(data.decode("utf-8"))
-                ciphertext = bytes.fromhex(cipher_packet["ciphertext"])
+                shared_key = self.ecc.derive_shared_key(client_pub)
+                real_key_hex = METHODS["AES"].decrypt(
+                    encrypted_key, shared_key)
+                real_key = bytes.fromhex(real_key_hex)
 
-                shared_key = ECCCipher.derive_shared_key(client_pub)
-                decrypted = METHODS["AES"].decrypt(ciphertext, shared_key)
-
+                decrypted = METHODS[method].decrypt(ciphertext, real_key)
                 if isinstance(decrypted, bytes):
-                    decrypted = decrypted.decode("utf-8")
+                    decrypted = decrypted.decode()
 
-                self.raw_txt.insert("end", cipher_packet["ciphertext"] + "\n")
+                
+                self.log.insert(
+                    "end",
+                    f"[ECC] Encrypted Symmetric Key (HEX):\n{packet['encrypted_key']}\n"
+                )
+                self.raw_txt.insert("end", packet["ciphertext"] + "\n")
                 self.dec_txt.insert("end", decrypted + "\n")
                 self.log.insert("end", "[ECC] Mesaj çözüldü\n")
                 return
 
-            encrypted_key_hex = msg.get("encrypted_key")
-            real_key = None
+         
+            if kex == "RSA":
+                encrypted_key = bytes.fromhex(msg["encrypted_key"])
+                real_key = RSACipher.decrypt(encrypted_key)
 
-            if encrypted_key_hex:
                 self.log.insert(
                     "end",
-                    f"[RSA] Şifrelenmiş Anahtar:\n{encrypted_key_hex}\n"
+                    f"[RSA] Encrypted Symmetric Key (HEX):\n{msg['encrypted_key']}\n"
                 )
-                real_key = RSACipher.decrypt(bytes.fromhex(encrypted_key_hex))
 
+                ciphertext = bytes.fromhex(msg["ciphertext"])
+                decrypted = METHODS[method].decrypt(ciphertext, real_key)
+                if isinstance(decrypted, bytes):
+                    decrypted = decrypted.decode()
+
+                self.raw_txt.insert("end", msg["ciphertext"] + "\n")
+                self.dec_txt.insert("end", decrypted + "\n")
+                self.log.insert("end", "[RSA] Mesaj çözüldü\n")
+                return
+
+           
             cipher_data = msg.get("ciphertext")
-            cipher_type = msg.get("type")
+            if msg.get("type") == "hex":
+                cipher_data = bytes.fromhex(cipher_data)
 
-            ciphertext = cipher_data
-            if cipher_type == "hex":
-                ciphertext = bytes.fromhex(cipher_data)
-
-            cipher_obj = METHODS[method]
-
-            if method == "RSA-MSG":
-                decrypted = cipher_obj.decrypt(ciphertext)
-            elif method in ["AES", "DES", "3DES", "ManualAES", "ManualDES"]:
-                decrypted = cipher_obj.decrypt(ciphertext, real_key)
-            else:
-                decrypted = cipher_obj.decrypt(ciphertext, msg.get("key"))
-
+            decrypted = METHODS[method].decrypt(cipher_data, msg.get("key"))
             if isinstance(decrypted, bytes):
-                decrypted = decrypted.decode("utf-8")
+                decrypted = decrypted.decode()
 
-            self.raw_txt.insert("end", str(cipher_data) + "\n")
+            self.raw_txt.insert("end", str(msg["ciphertext"]) + "\n")
             self.dec_txt.insert("end", decrypted + "\n")
             self.log.insert("end", "[OK] Mesaj çözüldü\n")
 
         except Exception as e:
             self.log.insert("end", f"[HATA] {str(e)}\n")
-
         finally:
             conn.close()
 
