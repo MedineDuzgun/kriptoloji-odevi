@@ -161,7 +161,6 @@ class ClientGUI:
             if method == "RSA-MSG":
                 encrypted = METHODS[method].encrypt(text)
 
-                # bytes ise hex stringe çevir
                 if isinstance(encrypted, bytes):
                     encrypted_str = encrypted.hex()
                     packet_type = "hex"
@@ -206,33 +205,29 @@ class ClientGUI:
     def on_method_change(self, event=None):
         method = self.method_combo.get()
 
-        klasik = ["Caesar", "Vigenere", "Affine"]
+        klasik = ["Caesar", "Vigenere", "Substitution", "Playfair", "RailFence",
+                  "Columnar", "Polybius", "Affine", "Hill", "Vernam", "Pigpen"]
         manuel_sifrelemeler = ["AES (Manual)", "DES (Manual)"]
 
-        # RSA-MSG: key entry kapalı, KEX kapalı
         if method == "RSA-MSG":
             self.key_entry.delete(0, "end")
             self.key_entry.config(state="disabled")
             self.kex_combo.config(state="disabled")
 
-        # Klasik şifrelemeler: key entry açık, KEX kapalı
         elif method in klasik:
             self.key_entry.config(state="normal")
             self.kex_combo.config(state="disabled")
 
-        # Manuel AES/DES: key entry kapalı, KEX kapalı
         elif method in manuel_sifrelemeler:
             self.key_entry.delete(0, "end")
             self.key_entry.config(state="disabled")
             self.kex_combo.config(state="disabled")
 
-        # AES/DES/3DES: key entry KEX’e göre, KEX aktif
         elif method in ["AES", "DES", "3DES"]:
             self.key_entry.delete(0, "end")
             self.key_entry.config(state="disabled")
             self.kex_combo.config(state="readonly")
 
-        # Diğer durumlar için varsayılan
         else:
             self.key_entry.config(state="normal")
             self.kex_combo.config(state="readonly")
@@ -241,12 +236,11 @@ class ClientGUI:
         method = self.method_combo.get()
         kex = self.kex_combo.get()
 
-        # Simetrik şifreleme + KEX seçildiyse kullanıcı anahtarı kapalı
         if method in ["AES", "DES", "3DES"] and kex in ["ECC", "RSA"]:
             self.key_entry.delete(0, "end")
             self.key_entry.config(state="disabled")
         else:
-            # Klasik veya manuel şifreleme: key entry açık olabilir
+
             if method in ["Caesar", "Vigenere", "Affine"]:
                 self.key_entry.config(state="normal")
             else:
