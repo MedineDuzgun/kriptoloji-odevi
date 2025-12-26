@@ -116,17 +116,14 @@ class ServerGUI:
             method = msg.get("method")
             kex = msg.get("kex")
 
-           
             if kex == "ECC":
                 client_pub = ECCCipher.load_public_key(msg["client_pub"])
                 self.ecc = ECCCipher()
 
-                
                 conn.sendall(json.dumps({
                     "server_pub": self.ecc.export_public_key()
                 }).encode())
 
-                
                 data2 = conn.recv(16384)
                 packet = json.loads(data2.decode())
                 encrypted_key = bytes.fromhex(packet["encrypted_key"])
@@ -141,7 +138,6 @@ class ServerGUI:
                 if isinstance(decrypted, bytes):
                     decrypted = decrypted.decode()
 
-                
                 self.log.insert(
                     "end",
                     f"[ECC] Encrypted Symmetric Key (HEX):\n{packet['encrypted_key']}\n"
@@ -151,7 +147,6 @@ class ServerGUI:
                 self.log.insert("end", "[ECC] Mesaj çözüldü\n")
                 return
 
-         
             if kex == "RSA":
                 encrypted_key = bytes.fromhex(msg["encrypted_key"])
                 real_key = RSACipher.decrypt(encrypted_key)
@@ -171,7 +166,20 @@ class ServerGUI:
                 self.log.insert("end", "[RSA] Mesaj çözüldü\n")
                 return
 
-           
+            if method == "RSA-MSG":
+                cipher_data = msg.get("ciphertext")
+                if msg.get("type") == "hex":
+                    cipher_data = bytes.fromhex(cipher_data)
+
+                decrypted = METHODS[method].decrypt(cipher_data)
+                if isinstance(decrypted, bytes):
+                    decrypted = decrypted.decode()
+
+                self.raw_txt.insert("end", msg["ciphertext"] + "\n")
+                self.dec_txt.insert("end", decrypted + "\n")
+                self.log.insert("end", "[RSA-MSG] Mesaj çözüldü\n")
+                return
+
             cipher_data = msg.get("ciphertext")
             if msg.get("type") == "hex":
                 cipher_data = bytes.fromhex(cipher_data)

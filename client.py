@@ -79,7 +79,6 @@ class ClientGUI:
         try:
             sock.connect((host, port))
 
-            
             if method in ["AES", "DES", "3DES"] and kex == "ECC":
                 if method == "DES":
                     key_len = 8
@@ -91,14 +90,12 @@ class ClientGUI:
                 self.ecc = ECCCipher()
                 client_pub = self.ecc.export_public_key()
 
-               
                 sock.sendall(json.dumps({
                     "method": method,
                     "kex": "ECC",
                     "client_pub": client_pub
                 }).encode())
 
-              
                 data = sock.recv(16384)
                 server_pub = ECCCipher.load_public_key(
                     json.loads(data.decode())["server_pub"]
@@ -106,15 +103,12 @@ class ClientGUI:
 
                 shared_key = self.ecc.derive_shared_key(server_pub)
 
-              
                 real_key = os.urandom(key_len)
 
-               
                 encrypted_key = METHODS["AES"].encrypt(
                     real_key.hex(), shared_key)
                 encrypted_msg = METHODS[method].encrypt(text, real_key)
 
-              
                 self.log.insert(
                     tk.END,
                     f"[ECC] Encrypted Symmetric Key (HEX):\n{encrypted_key.hex()}\n"
@@ -132,7 +126,6 @@ class ClientGUI:
                 self.log.insert(tk.END, f"[{method}] Gönderildi (ECC KEX)\n")
                 return
 
-          
             if method in ["AES", "DES", "3DES"] and kex == "RSA":
                 if method == "DES":
                     key_len = 8
@@ -144,7 +137,6 @@ class ClientGUI:
                 salt = os.urandom(16)
                 real_key = derive_key(password.encode(), salt, key_len)
 
-              
                 encrypted_key = RSACipher.encrypt(real_key)
                 encrypted_msg = METHODS[method].encrypt(text, real_key)
 
@@ -166,7 +158,26 @@ class ClientGUI:
                 self.log.insert(tk.END, f"[{method}] Gönderildi (RSA KEX)\n")
                 return
 
-            
+            if method == "RSA-MSG":
+                encrypted = METHODS[method].encrypt(text)
+
+                # bytes ise hex stringe çevir
+                if isinstance(encrypted, bytes):
+                    encrypted_str = encrypted.hex()
+                    packet_type = "hex"
+                else:
+                    encrypted_str = encrypted
+                    packet_type = "text"
+
+                packet = {
+                    "method": method,
+                    "type": packet_type,
+                    "ciphertext": encrypted_str
+                }
+                sock.sendall(json.dumps(packet).encode())
+                self.log.insert(tk.END, "[RSA-MSG] Gönderildi\n")
+                return
+
             CipherClass = METHODS[method]
             encrypted = CipherClass.encrypt(text, password)
 
@@ -194,36 +205,52 @@ class ClientGUI:
 
     def on_method_change(self, event=None):
         method = self.method_combo.get()
-        klasik = ["Caesar", "Vigenere", "Affine", "RSA-MSG"]
+
+        klasik = ["Caesar", "Vigenere", "Affine"]
         manuel_sifrelemeler = ["AES (Manual)", "DES (Manual)"]
 
-        if method in klasik:
-            
+        # RSA-MSG: key entry kapalı, KEX kapalı
+        if method == "RSA-MSG":
+            self.key_entry.delete(0, "end")
+            self.key_entry.config(state="disabled")
+            self.kex_combo.config(state="disabled")
+
+        # Klasik şifrelemeler: key entry açık, KEX kapalı
+        elif method in klasik:
             self.key_entry.config(state="normal")
             self.kex_combo.config(state="disabled")
+
+        # Manuel AES/DES: key entry kapalı, KEX kapalı
         elif method in manuel_sifrelemeler:
-           
             self.key_entry.delete(0, "end")
             self.key_entry.config(state="disabled")
             self.kex_combo.config(state="disabled")
-        else:
-            
+
+        # AES/DES/3DES: key entry KEX’e göre, KEX aktif
+        elif method in ["AES", "DES", "3DES"]:
             self.key_entry.delete(0, "end")
             self.key_entry.config(state="disabled")
+            self.kex_combo.config(state="readonly")
+
+        # Diğer durumlar için varsayılan
+        else:
+            self.key_entry.config(state="normal")
             self.kex_combo.config(state="readonly")
 
     def on_kex_change(self, event=None):
         method = self.method_combo.get()
         kex = self.kex_combo.get()
 
-        
+        # Simetrik şifreleme + KEX seçildiyse kullanıcı anahtarı kapalı
         if method in ["AES", "DES", "3DES"] and kex in ["ECC", "RSA"]:
             self.key_entry.delete(0, "end")
             self.key_entry.config(state="disabled")
         else:
-            
-            if method in ["Caesar", "Vigenere", "Affine", "RSA-MSG"]:
+            # Klasik veya manuel şifreleme: key entry açık olabilir
+            if method in ["Caesar", "Vigenere", "Affine"]:
                 self.key_entry.config(state="normal")
+            else:
+                self.key_entry.config(state="disabled")
 
 
 if __name__ == "__main__":
